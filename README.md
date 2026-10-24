@@ -5,6 +5,12 @@ Native Swift/SwiftUI companion app to
 APNs push notifications end-to-end against notifyhub's GraphQL API and
 `notificationReceived` GraphQL subscription.
 
+## Screenshots
+
+![Channel list, channel detail with live notifications, sign in (SwiftUI)](docs/screenshots/overview.png)
+
+_These images are illustrative mockups rendered from this repository's documented screens and API shapes, not captures of a running build. Regenerate or replace them with real captures once the app is running._
+
 ## What's here
 
 - Auth against notifyhub's JWT, Keychain-backed.

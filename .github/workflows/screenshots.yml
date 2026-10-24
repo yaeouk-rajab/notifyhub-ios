@@ -1,0 +1,125 @@
+name: Screenshots
+
+# A screenshot of the app's launch screen in the iOS Simulator on a macOS
+# runner. Run it by hand from the Actions tab. The PNG is uploaded as an
+# artifact; tick "commit" to also push it to docs/screenshots on the branch
+# you ran it from.
+#
+# It does not navigate past the first screen: it opens on the sign-in
+# screen, and everything after that needs a running notifyhub backend.
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Commit the images to docs/screenshots on this branch
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    name: capture
+    runs-on: macos-15
+    timeout-minutes: 45
+    # Only the commit step needs to write; it is skipped unless asked for.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Select the newest available Xcode
+        run: |
+          LATEST=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -n1)
+          if [ -z "$LATEST" ]; then
+            LATEST=/Applications/Xcode.app
+          fi
+          sudo xcode-select -switch "$LATEST"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Pick an available iPhone simulator
+        id: sim
+        run: |
+          BEST=$(xcrun simctl list devices available -j | jq -r '
+            [
+              .devices
+              | to_entries[]
+              | select(.key | startswith("com.apple.CoreSimulator.SimRuntime.iOS-"))
+              | .key as $runtime
+              | ($runtime | sub("com.apple.CoreSimulator.SimRuntime.iOS-"; "") | split("-") | map(tonumber)) as $ver
+              | .value[]
+              | select(.isAvailable and (.name | startswith("iPhone")))
+              | { name: .name, os: ($ver | join(".")), ver: $ver, udid: .udid }
+            ]
+            | sort_by(.ver)
+            | last
+            | if . == null then empty else "\(.name)|\(.os)|\(.udid)" end
+          ')
+          if [ -z "$BEST" ]; then
+            echo "No available iPhone simulator found" >&2
+            xcrun simctl list devices available
+            exit 1
+          fi
+          IFS='|' read -r NAME OS UDID <<< "$BEST"
+          echo "Selected: $NAME (iOS $OS) $UDID"
+          {
+            echo "name=$NAME"
+            echo "os=$OS"
+            echo "udid=$UDID"
+          } >> "$GITHUB_OUTPUT"
+
+      # Ad-hoc signing comes from project.yml; do not pass CODE_SIGNING_ALLOWED=NO.
+      - name: Build for the simulator
+        run: |
+          xcodebuild build \
+            -project NotifyHubIOS.xcodeproj \
+            -scheme NotifyHubIOS \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build/DerivedData
+
+      - name: Install, launch and screenshot
+        run: |
+          UDID="${{ steps.sim.outputs.udid }}"
+          APP=$(find build/DerivedData/Build/Products -maxdepth 2 -name 'NotifyHubIOS.app' | head -n1)
+          echo "App bundle: $APP"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch "$UDID" com.notifyhub.ios
+          sleep 8
+          mkdir -p docs/screenshots
+          xcrun simctl io "$UDID" screenshot docs/screenshots/launch.png
+          ls -l docs/screenshots
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: screenshots
+          path: docs/screenshots/*.png
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Commit the images
+        if: ${{ inputs.commit }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/screenshots
+          if git diff --cached --quiet; then
+            echo "No image changes to commit."
+          else
+            git commit -m "Update screenshots from CI"
+            git push origin "HEAD:${{ github.ref_name }}"
+          fi
