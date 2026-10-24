@@ -7,9 +7,9 @@ APNs push notifications end-to-end against notifyhub's GraphQL API and
 
 ## Screenshots
 
-![Channel list, channel detail with live notifications, sign in (SwiftUI)](docs/screenshots/overview.png)
+![NotifyHub first launch on an iPhone simulator](docs/screenshots/launch.png)
 
-_These images are illustrative mockups rendered from this repository's documented screens and API shapes, not captures of a running build. Regenerate or replace them with real captures once the app is running._
+_A real capture: the app's first launch on an iPhone simulator, produced by the manual `Screenshots` workflow (`.github/workflows/screenshots.yml`). The system notification-permission prompt covers the sign-in screen behind it, and everything past sign-in needs a backend._
 
 ## What's here
 
